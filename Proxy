@@ -1,0 +1,183 @@
+"""
+NASH 33 — Cocina · Bar · Música
+A single-service Flask site (landing page + reservation endpoint).
+
+Run:
+    pip install flask
+    python app.py
+Then open http://127.0.0.1:5000
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime
+
+from flask import Flask, jsonify, redirect, render_template, request, url_for, flash
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "nash33-dev-secret")
+
+# --------------------------------------------------------------------------- #
+# Brand & content
+# --------------------------------------------------------------------------- #
+BRAND = "NASH 33"
+TAGLINE = "Cocina de fuego · Bar de autor · Música en vivo"
+
+RESERVATIONS_FILE = os.path.join(os.path.dirname(__file__), "data", "reservations.jsonl")
+
+MENU = {
+    "entradas": {
+        "label": "Entradas",
+        "items": [
+            {"name": "Guacamole de la casa",
+             "desc": "Aguacate, cilantro, chile serrano y totopos de maíz azul.",
+             "price": "$180"},
+            {"name": "Tostadas de atún aleta amarilla",
+             "desc": "Ajonjolí tostado, ponzu de la casa y aguacate.",
+             "price": "$240"},
+            {"name": "Croquetas de tuétano",
+             "desc": "Crujientes por fuera, cremosas por dentro, con alioli de ajo negro.",
+             "price": "$210"},
+            {"name": "Esquites con chile de árbol",
+             "desc": "Elote rostizado, mayonesa de Chipotle y queso cotija.",
+             "price": "$150"},
+        ],
+    },
+    "fuertes": {
+        "label": "Fuertes",
+        "items": [
+            {"name": "Rib eye 400 g a las brasas",
+             "desc": "Madurado 28 días, sal de humo y papas al romero.",
+             "price": "$690"},
+            {"name": "Pulpo al carbón",
+             "desc": "Puré de papa ahumado, chorizo verde y limón quemado.",
+             "price": "$480"},
+            {"name": "Mole negro de la abuela",
+             "desc": "Receta de tres días, pollo de rancho y arroz rojo.",
+             "price": "$390"},
+            {"name": "Hamburguesa NASH 33",
+             "desc": "Doble carne, cheddar añejo, cebolla caramelizada y pan brioche.",
+             "price": "$290"},
+        ],
+    },
+    "cocteles": {
+        "label": "Cocteles",
+        "items": [
+            {"name": "NASH 33",
+             "desc": "Mezcal, maracuyá, jamaica y sal de gusano. La firma de la casa.",
+             "price": "$210"},
+            {"name": "Old Fashioned ahumado",
+             "desc": "Bourbon, azúcar de piloncillo y humo de encino.",
+             "price": "$230"},
+            {"name": "Paloma de toronja rostizada",
+             "desc": "Tequila blanco, toronja al horno y agua mineral.",
+             "price": "$190"},
+            {"name": "Nash Rojo",
+             "desc": "Gin, fresa, pimienta rosa y un toque de chile.",
+             "price": "$200"},
+        ],
+    },
+    "postres": {
+        "label": "Postres",
+        "items": [
+            {"name": "Flan de cacao",
+             "desc": "Cacao de Chiapas, crema de vainilla y sal de mar.",
+             "price": "$130"},
+            {"name": "Tarta de queso quemada",
+             "desc": "Base de galleta, queso crema y caramelo oscuro.",
+             "price": "$150"},
+            {"name": "Churros con cajeta",
+             "desc": "Recién hechos, cajeta de Celaya y canela.",
+             "price": "$120"},
+        ],
+    },
+}
+
+GALLERY = [
+    {"src": "https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=1200&q=80",
+     "alt": "Barra iluminada en penumbra", "span": "tall"},
+    {"src": "https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=1200&q=80",
+     "alt": "Comensales compartiendo mesa", "span": ""},
+    {"src": "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1200&q=80",
+     "alt": "Coctel servido en la barra", "span": ""},
+    {"src": "https://images.unsplash.com/photo-1544148103-0773bf10d330?auto=format&fit=crop&w=1200&q=80",
+     "alt": "Platillo a las brasas", "span": "wide"},
+    {"src": "https://images.unsplash.com/photo-1470337458703-46ad1756a187?auto=format&fit=crop&w=1200&q=80",
+     "alt": "Detalle de la barra", "span": ""},
+    {"src": "https://images.unsplash.com/photo-1470158499416-75be9aa0c4db?auto=format&fit=crop&w=1200&q=80",
+     "alt": "Sala con música en vivo", "span": ""},
+]
+
+HOURS = [
+    {"day": "Lunes a Jueves", "time": "13:00 — 23:00"},
+    {"day": "Viernes y Sábado", "time": "13:00 — 02:00"},
+    {"day": "Domingo", "time": "13:00 — 20:00"},
+]
+
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+def save_reservation(payload: dict) -> None:
+    """Append a reservation to a JSON Lines file."""
+    os.makedirs(os.path.dirname(RESERVATIONS_FILE), exist_ok=True)
+    record = {"created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z", **payload}
+    with open(RESERVATIONS_FILE, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+# --------------------------------------------------------------------------- #
+# Routes
+# --------------------------------------------------------------------------- #
+@app.route("/")
+def index():
+    return render_template(
+        "index.html",
+        brand=BRAND,
+        tagline=TAGLINE,
+        menu=MENU,
+        gallery=GALLERY,
+        hours=HOURS,
+        year=datetime.now().year,
+    )
+
+
+@app.post("/reservar")
+def reservar():
+    fields = ("nombre", "contacto", "fecha", "hora", "personas", "notas")
+    form = {k: (request.form.get(k) or "").strip() for k in fields}
+
+    missing = [k for k in ("nombre", "contacto", "fecha", "hora", "personas") if not form[k]]
+    if missing:
+        flash("Faltan datos: completa todos los campos obligatorios.", "error")
+        return redirect(url_for("index") + "#reservar")
+
+    try:
+        personas = int(form["personas"])
+        if not 1 <= personas <= 30:
+            raise ValueError
+    except ValueError:
+        flash("El número de personas debe estar entre 1 y 30.", "error")
+        return redirect(url_for("index") + "#reservar")
+
+    save_reservation(form)
+    flash(f"¡Gracias, {form['nombre'].split()[0]}! Recibimos tu solicitud para {personas} "
+          f"persona(s) el {form['fecha']} a las {form['hora']}. Te confirmamos por teléfono.",
+          "success")
+    return redirect(url_for("index") + "#reservar")
+
+
+@app.get("/api/menu")
+def api_menu():
+    return jsonify({"brand": BRAND, "menu": MENU})
+
+
+@app.get("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
+
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
